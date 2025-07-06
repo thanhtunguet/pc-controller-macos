@@ -43,6 +43,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         popover?.behavior = .transient
         popover?.contentSize = NSSize(width: 280, height: 240)
         
+        // Use vibrant material that adapts to system appearance
+        if let effectiveAppearance = NSApp.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) {
+            popover?.appearance = NSAppearance(named: effectiveAppearance == .darkAqua ? .vibrantDark : .vibrantLight)
+        } else {
+            popover?.appearance = NSAppearance(named: .vibrantDark)
+        }
+        
         NSApplication.shared.setActivationPolicy(.accessory)
     }
     

@@ -10,6 +10,7 @@ struct ContentView: View {
                 Text("PC Controller")
                     .font(.headline)
                     .foregroundColor(.primary)
+                    .fontWeight(.semibold)
                 
                 Spacer()
                 
@@ -90,6 +91,15 @@ struct ContentView: View {
         }
         .padding(16)
         .frame(width: 280)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(.regularMaterial)
+                .shadow(color: .black.opacity(0.15), radius: 8, x: 0, y: 4)
+        )
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(.separator.opacity(0.5), lineWidth: 1)
+        )
         .sheet(isPresented: $showingSettings) {
             SettingsView()
         }
@@ -107,7 +117,8 @@ struct StatusIndicator: View {
             
             Text(statusText)
                 .font(.caption)
-                .foregroundColor(.secondary)
+                .foregroundColor(.primary)
+                .fontWeight(.medium)
         }
         .padding(.vertical, 2)
     }
