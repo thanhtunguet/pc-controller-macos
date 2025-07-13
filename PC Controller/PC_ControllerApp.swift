@@ -1,5 +1,61 @@
 import SwiftUI
 import AppKit
+import ServiceManagement
+
+class LoginItemsManager: ObservableObject {
+    static let shared = LoginItemsManager()
+    
+    private init() {}
+    
+    @MainActor
+    func isLoginItemEnabled() -> Bool {
+        let status = SMAppService.mainApp.status
+        return status == .enabled
+    }
+    
+    @MainActor
+    func setLoginItemEnabled(_ enabled: Bool) async -> Bool {
+        do {
+            if enabled {
+                if SMAppService.mainApp.status == .enabled {
+                    return true
+                }
+                
+                try SMAppService.mainApp.register()
+                return true
+            } else {
+                if SMAppService.mainApp.status == .notRegistered {
+                    return true
+                }
+                
+                try await SMAppService.mainApp.unregister()
+                return true
+            }
+        } catch {
+            print("Failed to \(enabled ? "enable" : "disable") login item: \(error.localizedDescription)")
+            return false
+        }
+    }
+    
+    func getLoginItemStatus() -> SMAppService.Status {
+        return SMAppService.mainApp.status
+    }
+    
+    func getStatusDescription() -> String {
+        switch SMAppService.mainApp.status {
+        case .enabled:
+            return "Enabled"
+        case .notRegistered:
+            return "Disabled"
+        case .notFound:
+            return "Not Found"
+        case .requiresApproval:
+            return "Requires Approval"
+        @unknown default:
+            return "Unknown"
+        }
+    }
+}
 
 @main
 struct PC_ControllerApp: App {
@@ -51,6 +107,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
         
         NSApplication.shared.setActivationPolicy(.accessory)
+        
+        // Initialize login items state synchronization
+        initializeLoginItemsState()
     }
     
     @objc func togglePopover() {
@@ -74,5 +133,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
         
         return !matchingApps.isEmpty
+    }
+    
+    @MainActor
+    private func initializeLoginItemsState() {
+        let loginItemsManager = LoginItemsManager.shared
+        let isCurrentlyEnabled = loginItemsManager.isLoginItemEnabled()
+        let userDefaultsValue = UserDefaults.standard.bool(forKey: Constants.UserDefaults.startOnLogin)
+        
+        // Sync UserDefaults with actual system state
+        if isCurrentlyEnabled != userDefaultsValue {
+            UserDefaults.standard.set(isCurrentlyEnabled, forKey: Constants.UserDefaults.startOnLogin)
+        }
     }
 }

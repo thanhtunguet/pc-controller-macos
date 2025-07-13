@@ -23,6 +23,7 @@ struct Constants {
         static let pcIPAddress = "pcIPAddress"
         static let macAddress = "macAddress"
         static let apiKey = "apiKey"
+        static let startOnLogin = "startOnLogin"
     }
     
     // MARK: - UI Configuration

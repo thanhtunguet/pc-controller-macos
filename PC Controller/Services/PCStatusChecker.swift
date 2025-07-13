@@ -1,6 +1,18 @@
 import Foundation
 import Network
 
+actor ConnectionState {
+    private var hasResumed: Bool = false
+    
+    func checkAndSetResumed() -> Bool {
+        if hasResumed {
+            return true
+        }
+        hasResumed = true
+        return false
+    }
+}
+
 class PCStatusChecker {
     private let timeoutInterval: TimeInterval = 5.0
     
@@ -23,35 +35,37 @@ class PCStatusChecker {
                 using: .tcp
             )
             
-            var hasResumed = false
+            let resumeState = ConnectionState()
             
             let timeoutTask = Task {
                 try await Task.sleep(nanoseconds: UInt64(timeoutInterval * 1_000_000_000))
-                if !hasResumed {
-                    hasResumed = true
+                let wasAlreadyResumed = await resumeState.checkAndSetResumed()
+                if !wasAlreadyResumed {
                     continuation.resume(returning: false)
                     connection.cancel()
                 }
             }
             
             connection.stateUpdateHandler = { state in
-                switch state {
-                case .ready:
-                    if !hasResumed {
-                        hasResumed = true
-                        timeoutTask.cancel()
-                        continuation.resume(returning: true)
-                        connection.cancel()
+                Task {
+                    switch state {
+                    case .ready:
+                        let wasAlreadyResumed = await resumeState.checkAndSetResumed()
+                        if !wasAlreadyResumed {
+                            timeoutTask.cancel()
+                            continuation.resume(returning: true)
+                            connection.cancel()
+                        }
+                    case .failed(_), .cancelled:
+                        let wasAlreadyResumed = await resumeState.checkAndSetResumed()
+                        if !wasAlreadyResumed {
+                            timeoutTask.cancel()
+                            continuation.resume(returning: false)
+                            connection.cancel()
+                        }
+                    default:
+                        break
                     }
-                case .failed(_), .cancelled:
-                    if !hasResumed {
-                        hasResumed = true
-                        timeoutTask.cancel()
-                        continuation.resume(returning: false)
-                        connection.cancel()
-                    }
-                default:
-                    break
                 }
             }
             
@@ -61,20 +75,25 @@ class PCStatusChecker {
     
     func continuousMonitoring(ipAddress: String, port: Int, interval: TimeInterval = 30.0) -> AsyncStream<PCStatus> {
         return AsyncStream { continuation in
-            let timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { _ in
-                Task {
-                    let status = await self.checkStatus(ipAddress: ipAddress, port: port)
-                    continuation.yield(status)
+            let task = Task { [weak self] in
+                guard let self = self else { return }
+                
+                // Send initial status
+                let initialStatus = await self.checkStatus(ipAddress: ipAddress, port: port)
+                continuation.yield(initialStatus)
+                
+                // Continue monitoring
+                while !Task.isCancelled {
+                    try? await Task.sleep(nanoseconds: UInt64(interval * 1_000_000_000))
+                    if !Task.isCancelled {
+                        let status = await self.checkStatus(ipAddress: ipAddress, port: port)
+                        continuation.yield(status)
+                    }
                 }
             }
             
-            continuation.onTermination = { _ in
-                timer.invalidate()
-            }
-            
-            Task {
-                let initialStatus = await self.checkStatus(ipAddress: ipAddress, port: port)
-                continuation.yield(initialStatus)
+            continuation.onTermination = { @Sendable _ in
+                task.cancel()
             }
         }
     }

@@ -5,8 +5,10 @@ struct SettingsView: View {
     @AppStorage("pcIPAddress") private var pcIPAddress = ""
     @AppStorage("macAddress") private var macAddress = ""
     @AppStorage("apiKey") private var apiKey = ""
+    @AppStorage("startOnLogin") private var startOnLogin = false
     @Environment(\.dismiss) private var dismiss
     @State private var urlError: String?
+    @StateObject private var loginItemsManager = LoginItemsManager.shared
     
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -59,6 +61,33 @@ struct SettingsView: View {
                     .textFieldStyle(RoundedBorderTextFieldStyle())
             }
             
+            Divider()
+            
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Startup Settings")
+                    .font(.headline)
+                
+                HStack {
+                    Toggle("Start on Login", isOn: $startOnLogin)
+                        .onChange(of: startOnLogin) { _, newValue in
+                            Task {
+                                let success = await loginItemsManager.setLoginItemEnabled(newValue)
+                                if !success {
+                                    await MainActor.run {
+                                        startOnLogin = loginItemsManager.isLoginItemEnabled()
+                                    }
+                                }
+                            }
+                        }
+                    
+                    Spacer()
+                    
+                    Text(loginItemsManager.getStatusDescription())
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+            
             HStack {
                 Spacer()
                 
@@ -77,7 +106,10 @@ struct SettingsView: View {
             }
         }
         .padding()
-        .frame(width: 400, height: 350)
+        .frame(width: 400, height: 420)
+        .onAppear {
+            startOnLogin = loginItemsManager.isLoginItemEnabled()
+        }
     }
     
     private func validateURL(_ url: String) {
