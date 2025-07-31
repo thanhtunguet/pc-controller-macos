@@ -37,6 +37,9 @@ jobs:
         rm -rf ~/Library/Developer/Xcode/DerivedData
         xcodebuild clean -project "$XCODE_PROJECT" -scheme "$XCODE_SCHEME"
         
+    - name: Create build directory
+      run: mkdir -p ./build
+        
     - name: Build for testing
       run: |
         xcodebuild build \
@@ -62,36 +65,7 @@ jobs:
           CODE_SIGNING_REQUIRED=NO \
           CODE_SIGNING_ALLOWED=NO
           
-    - name: Export IPA
-      run: |
-        mkdir -p ./build
-        xcodebuild -exportArchive \
-          -archivePath ./build/"$APP_NAME".xcarchive \
-          -exportPath ./build/"$APP_NAME" \
-          -exportOptionsPlist ./exportOptions.plist
-          
-    - name: Create export options plist
-      run: |
-        cat > exportOptions.plist << EOF
-        <?xml version="1.0" encoding="UTF-8"?>
-        <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-        <plist version="1.0">
-        <dict>
-            <key>method</key>
-            <string>mac-application</string>
-            <key>teamID</key>
-            <string></string>
-            <key>signingStyle</key>
-            <string>automatic</string>
-            <key>stripSwiftSymbols</key>
-            <true/>
-            <key>uploadBitcode</key>
-            <false/>
-            <key>uploadSymbols</key>
-            <false/>
-        </dict>
-        </plist>
-        EOF
+
         
     - name: Create app bundle
       run: |
@@ -108,7 +82,7 @@ jobs:
       with:
         name: macOS-App-Build
         path: |
-          ./build/"$APP_NAME".app
+          ./build/App/"$APP_NAME".app
           ./build/"$APP_NAME".dmg
           ./build/"$APP_NAME".xcarchive
         retention-days: 30

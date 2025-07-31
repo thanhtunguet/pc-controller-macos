@@ -48,6 +48,9 @@ jobs:
         rm -rf ~/Library/Developer/Xcode/DerivedData
         xcodebuild clean -project "$XCODE_PROJECT" -scheme "$XCODE_SCHEME"
         
+    - name: Create build directory
+      run: mkdir -p ./build
+        
     - name: Build app
       run: |
         xcodebuild build \
