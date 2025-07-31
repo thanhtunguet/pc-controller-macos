@@ -1,0 +1,84 @@
+name: Build macOS App (Simple)
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  XCODE_PROJECT: "PC Controller.xcodeproj"
+  XCODE_SCHEME: "PC Controller"
+  APP_NAME: "PC Controller"
+
+jobs:
+  build:
+    runs-on: macos-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Select Xcode
+      run: sudo xcode-select -switch /Applications/Xcode.app
+      
+    - name: Show Xcode version
+      run: xcodebuild -version
+      
+    - name: Clean build folder
+      run: |
+        rm -rf ~/Library/Developer/Xcode/DerivedData
+        xcodebuild clean -project "$XCODE_PROJECT" -scheme "$XCODE_SCHEME"
+        
+    - name: Build app
+      run: |
+        xcodebuild build \
+          -project "$XCODE_PROJECT" \
+          -scheme "$XCODE_SCHEME" \
+          -configuration Release \
+          -destination 'platform=macOS' \
+          -derivedDataPath ./DerivedData \
+          CODE_SIGN_IDENTITY="" \
+          CODE_SIGNING_REQUIRED=NO \
+          CODE_SIGNING_ALLOWED=NO
+          
+    - name: Archive app
+      run: |
+        xcodebuild archive \
+          -project "$XCODE_PROJECT" \
+          -scheme "$XCODE_SCHEME" \
+          -configuration Release \
+          -destination 'platform=macOS' \
+          -archivePath ./build/"$APP_NAME".xcarchive \
+          -derivedDataPath ./DerivedData \
+          CODE_SIGN_IDENTITY="" \
+          CODE_SIGNING_REQUIRED=NO \
+          CODE_SIGNING_ALLOWED=NO
+          
+    - name: Create app bundle
+      run: |
+        mkdir -p ./build/App
+        cp -R ./build/"$APP_NAME".xcarchive/Products/Applications/"$APP_NAME".app ./build/App/
+        
+    - name: Create DMG
+      run: |
+        hdiutil create -volname "$APP_NAME" -srcfolder ./build/App -ov -format UDZO ./build/"$APP_NAME".dmg
+        
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: macOS-App-Build
+        path: |
+          ./build/App/"$APP_NAME".app
+          ./build/"$APP_NAME".dmg
+          ./build/"$APP_NAME".xcarchive
+        retention-days: 30
+        
+    - name: Upload build logs
+      uses: actions/upload-artifact@v4
+      if: failure()
+      with:
+        name: Build-Logs
+        path: |
+          ./DerivedData
+        retention-days: 7 

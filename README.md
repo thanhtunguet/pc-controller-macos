@@ -40,6 +40,39 @@ The app provides a clean, minimal interface with three main control buttons and 
 
 3. Build and run the project (⌘+R)
 
+### Using GitHub Actions (Recommended)
+
+The project includes automated GitHub Actions workflows for building and distributing the app:
+
+#### Quick Build
+- Push to `main` or `develop` branch to trigger automatic builds
+- Download artifacts from the Actions tab in GitHub
+- No setup required for basic builds
+
+#### Manual Build
+- Go to Actions → Manual Build → Run workflow
+- Choose build type (simple/full) and configuration (Debug/Release)
+- Perfect for testing builds without committing code
+
+#### Production Release
+- Create a GitHub release to trigger production build with code signing
+- Requires Apple Developer account and code signing certificates
+- See [GitHub Actions documentation](.github/README.md) for setup instructions
+
+#### Local Build Script
+```bash
+# Make script executable
+chmod +x scripts/build-local.sh
+
+# Run full build
+./scripts/build-local.sh
+
+# Or run specific steps
+./scripts/build-local.sh clean
+./scripts/build-local.sh build
+./scripts/build-local.sh archive
+```
+
 ## Configuration
 
 1. Click the gear icon in the app's popover to open settings

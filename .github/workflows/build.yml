@@ -1,0 +1,203 @@
+name: Build macOS App
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+  release:
+    types: [ published ]
+
+env:
+  XCODE_PROJECT: "PC Controller.xcodeproj"
+  XCODE_SCHEME: "PC Controller"
+  XCODE_WORKSPACE: ""
+  BUNDLE_IDENTIFIER: "info.thanhtunguet.pccontroller"
+  APP_NAME: "PC Controller"
+
+jobs:
+  build:
+    runs-on: macos-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Select Xcode
+      run: sudo xcode-select -switch /Applications/Xcode.app
+      
+    - name: Show Xcode version
+      run: xcodebuild -version
+      
+    - name: Show Swift version
+      run: swift --version
+      
+    - name: Clean build folder
+      run: |
+        rm -rf ~/Library/Developer/Xcode/DerivedData
+        xcodebuild clean -project "$XCODE_PROJECT" -scheme "$XCODE_SCHEME"
+        
+    - name: Build for testing
+      run: |
+        xcodebuild build \
+          -project "$XCODE_PROJECT" \
+          -scheme "$XCODE_SCHEME" \
+          -configuration Debug \
+          -destination 'platform=macOS' \
+          -derivedDataPath ./DerivedData \
+          CODE_SIGN_IDENTITY="" \
+          CODE_SIGNING_REQUIRED=NO \
+          CODE_SIGNING_ALLOWED=NO
+          
+    - name: Build for release
+      run: |
+        xcodebuild archive \
+          -project "$XCODE_PROJECT" \
+          -scheme "$XCODE_SCHEME" \
+          -configuration Release \
+          -destination 'platform=macOS' \
+          -archivePath ./build/"$APP_NAME".xcarchive \
+          -derivedDataPath ./DerivedData \
+          CODE_SIGN_IDENTITY="" \
+          CODE_SIGNING_REQUIRED=NO \
+          CODE_SIGNING_ALLOWED=NO
+          
+    - name: Export IPA
+      run: |
+        mkdir -p ./build
+        xcodebuild -exportArchive \
+          -archivePath ./build/"$APP_NAME".xcarchive \
+          -exportPath ./build/"$APP_NAME" \
+          -exportOptionsPlist ./exportOptions.plist
+          
+    - name: Create export options plist
+      run: |
+        cat > exportOptions.plist << EOF
+        <?xml version="1.0" encoding="UTF-8"?>
+        <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+        <plist version="1.0">
+        <dict>
+            <key>method</key>
+            <string>mac-application</string>
+            <key>teamID</key>
+            <string></string>
+            <key>signingStyle</key>
+            <string>automatic</string>
+            <key>stripSwiftSymbols</key>
+            <true/>
+            <key>uploadBitcode</key>
+            <false/>
+            <key>uploadSymbols</key>
+            <false/>
+        </dict>
+        </plist>
+        EOF
+        
+    - name: Create app bundle
+      run: |
+        mkdir -p ./build/App
+        cp -R ./build/"$APP_NAME".xcarchive/Products/Applications/"$APP_NAME".app ./build/App/
+        
+    - name: Create DMG
+      run: |
+        # Create DMG using hdiutil
+        hdiutil create -volname "$APP_NAME" -srcfolder ./build/App -ov -format UDZO ./build/"$APP_NAME".dmg
+        
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: macOS-App-Build
+        path: |
+          ./build/"$APP_NAME".app
+          ./build/"$APP_NAME".dmg
+          ./build/"$APP_NAME".xcarchive
+        retention-days: 30
+        
+    - name: Upload build logs
+      uses: actions/upload-artifact@v4
+      if: failure()
+      with:
+        name: Build-Logs
+        path: |
+          ./DerivedData
+        retention-days: 7
+
+  test:
+    runs-on: macos-latest
+    needs: build
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Select Xcode
+      run: sudo xcode-select -switch /Applications/Xcode.app
+      
+    - name: Run tests
+      run: |
+        xcodebuild test \
+          -project "$XCODE_PROJECT" \
+          -scheme "$XCODE_SCHEME" \
+          -destination 'platform=macOS' \
+          -derivedDataPath ./DerivedData \
+          CODE_SIGN_IDENTITY="" \
+          CODE_SIGNING_REQUIRED=NO \
+          CODE_SIGNING_ALLOWED=NO
+          
+    - name: Upload test results
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: Test-Results
+        path: |
+          ./DerivedData
+        retention-days: 7
+
+  code-sign:
+    runs-on: macos-latest
+    needs: build
+    if: github.event_name == 'release'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Download build artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: macOS-App-Build
+        path: ./build
+        
+    - name: Setup code signing
+      uses: apple-actions/import-codesigning-certs@v1
+      with:
+        p12-file-base64: ${{ secrets.P12_BASE64 }}
+        p12-password: ${{ secrets.P12_PASSWORD }}
+        
+    - name: Code sign app
+      run: |
+        codesign --force --sign "Developer ID Application: ${{ secrets.DEVELOPER_ID }}" \
+          --options runtime \
+          --timestamp \
+          ./build/App/"$APP_NAME".app
+          
+    - name: Notarize app
+      run: |
+        xcrun notarytool submit ./build/"$APP_NAME".dmg \
+          --apple-id "${{ secrets.APPLE_ID }}" \
+          --password "${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}" \
+          --team-id "${{ secrets.TEAM_ID }}" \
+          --wait
+          
+    - name: Staple ticket
+      run: |
+        xcrun stapler staple ./build/"$APP_NAME".dmg
+        
+    - name: Upload signed artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: Signed-macOS-App
+        path: |
+          ./build/App/"$APP_NAME".app
+          ./build/"$APP_NAME".dmg
+        retention-days: 90 
