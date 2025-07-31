@@ -99,6 +99,7 @@ jobs:
   test:
     runs-on: macos-latest
     needs: build
+    if: false  # Disabled until tests are added to the project
     
     steps:
     - name: Checkout code

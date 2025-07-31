@@ -19,8 +19,9 @@ This directory contains GitHub Actions workflows for building and distributing t
 - **Outputs**: 
   - Signed `.app` bundle
   - Notarized `.dmg` installer
-  - Test results
+  - Test results (when enabled)
 - **Use case**: Production releases, App Store distribution
+- **Note**: Test workflow is currently disabled (see [TESTING.md](TESTING.md) for setup)
 
 ## Quick Start
 
