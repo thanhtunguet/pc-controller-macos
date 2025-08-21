@@ -1,11 +1,24 @@
 import Foundation
 import Network
+import WidgetKit
 
 @MainActor
 class NetworkManager: ObservableObject {
-    @Published var pcStatus: PCStatus = .unknown
+    @Published var pcStatus: PCStatus = .unknown {
+        didSet {
+            if pcStatus != oldValue {
+                updateWidgetData()
+            }
+        }
+    }
     @Published var isLoading = false
-    @Published var lastError: String?
+    @Published var lastError: String? {
+        didSet {
+            if lastError != oldValue {
+                updateWidgetData()
+            }
+        }
+    }
     
     private let urlSession: URLSession
     private var statusTimer: Timer?
@@ -17,6 +30,8 @@ class NetworkManager: ObservableObject {
         self.urlSession = URLSession(configuration: config)
         
         startStatusMonitoring()
+        syncWithWidget()
+        startWidgetActionMonitoring()
     }
     
     deinit {
@@ -143,7 +158,7 @@ class NetworkManager: ObservableObject {
     
     private func startStatusMonitoring() {
         statusTimer = Timer.scheduledTimer(withTimeInterval: 30.0, repeats: true) { _ in
-            Task {
+            Task { @MainActor in
                 await self.performStatusCheck()
             }
         }
@@ -156,5 +171,57 @@ class NetworkManager: ObservableObject {
     private func stopStatusMonitoring() {
         statusTimer?.invalidate()
         statusTimer = nil
+    }
+    
+    private func syncWithWidget() {
+        // Initial sync - always update widget on app start
+        updateWidgetData()
+    }
+    
+    private func updateWidgetData() {
+        let config = getCurrentConfig()
+        let sharedData = SharedPCData(
+            status: pcStatus,
+            lastUpdated: Date(),
+            config: config != nil ? SharedPCConfig(from: config!) : nil,
+            lastError: lastError
+        )
+        WidgetDataManager.shared.saveData(sharedData)
+    }
+    
+    // Public method to force widget update (e.g., when settings change)
+    func forceWidgetUpdate() {
+        updateWidgetData()
+    }
+    
+    private func startWidgetActionMonitoring() {
+        // Monitor for widget actions via UserDefaults
+        let userDefaults = UserDefaults(suiteName: "group.pccontroller.shared")
+        
+        Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
+            guard let action = userDefaults?.string(forKey: "widgetAction"),
+                  let actionTime = userDefaults?.object(forKey: "widgetActionTime") as? Date else {
+                return
+            }
+            
+            // Only process actions from the last 5 seconds to avoid duplicate processing
+            if Date().timeIntervalSince(actionTime) < 5.0 {
+                userDefaults?.removeObject(forKey: "widgetAction")
+                userDefaults?.removeObject(forKey: "widgetActionTime")
+                
+                Task { @MainActor in
+                    switch action {
+                    case "turn-on":
+                        await self.turnOnPC()
+                    case "turn-off":
+                        await self.turnOffPC()
+                    case "check-status":
+                        await self.checkPCStatus()
+                    default:
+                        break
+                    }
+                }
+            }
+        }
     }
 }

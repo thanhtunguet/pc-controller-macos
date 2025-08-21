@@ -71,6 +71,7 @@ struct PC_ControllerApp: App {
 class AppDelegate: NSObject, NSApplicationDelegate {
     var statusItem: NSStatusItem?
     var popover: NSPopover?
+    var networkManager: NetworkManager?
     
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Check if another instance is already running
@@ -94,8 +95,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             button.target = self
         }
         
+        // Initialize NetworkManager
+        networkManager = NetworkManager()
+        
         popover = NSPopover()
-        popover?.contentViewController = NSHostingController(rootView: ContentView())
+        popover?.contentViewController = NSHostingController(rootView: ContentView().environmentObject(networkManager!))
         popover?.behavior = .transient
         popover?.contentSize = NSSize(width: 280, height: 240)
         
@@ -110,6 +114,50 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         
         // Initialize login items state synchronization
         initializeLoginItemsState()
+        
+        // Register URL scheme handler
+        NSAppleEventManager.shared().setEventHandler(
+            self,
+            andSelector: #selector(handleURLEvent(_:withReplyEvent:)),
+            forEventClass: AEEventClass(kInternetEventClass),
+            andEventID: AEEventID(kAEGetURL)
+        )
+    }
+    
+    @objc func handleURLEvent(_ event: NSAppleEventDescriptor, withReplyEvent replyEvent: NSAppleEventDescriptor) {
+        guard let urlString = event.paramDescriptor(forKeyword: AEKeyword(keyDirectObject))?.stringValue,
+              let url = URL(string: urlString) else {
+            return
+        }
+        
+        handleWidgetAction(url: url)
+    }
+    
+    private func handleWidgetAction(url: URL) {
+        guard url.scheme == "pccontroller",
+              let networkManager = networkManager else {
+            return
+        }
+        
+        switch url.host {
+        case "turn-on":
+            Task {
+                await networkManager.turnOnPC()
+            }
+        case "turn-off":
+            Task {
+                await networkManager.turnOffPC()
+            }
+        case "check-status":
+            Task {
+                await networkManager.checkPCStatus()
+            }
+        case "open":
+            // Show the main app popover
+            togglePopover()
+        default:
+            break
+        }
     }
     
     @objc func togglePopover() {

@@ -9,6 +9,7 @@ struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var urlError: String?
     @StateObject private var loginItemsManager = LoginItemsManager.shared
+    @EnvironmentObject var networkManager: NetworkManager
     
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -98,6 +99,8 @@ struct SettingsView: View {
                 
                 Button("Save") {
                     if validateAndSave() {
+                        // Force widget update with new settings
+                        networkManager.forceWidgetUpdate()
                         dismiss()
                     }
                 }

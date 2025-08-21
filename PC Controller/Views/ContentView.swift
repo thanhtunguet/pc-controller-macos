@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct ContentView: View {
-    @StateObject private var networkManager = NetworkManager()
+    @EnvironmentObject var networkManager: NetworkManager
     @State private var showingSettings = false
     
     var body: some View {
@@ -102,6 +102,7 @@ struct ContentView: View {
         )
         .sheet(isPresented: $showingSettings) {
             SettingsView()
+                .environmentObject(networkManager)
         }
     }
 }
