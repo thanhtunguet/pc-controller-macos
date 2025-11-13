@@ -1,6 +1,8 @@
 import SwiftUI
+import SwiftUI
 import AppKit
 import ServiceManagement
+import Combine
 
 class LoginItemsManager: ObservableObject {
     static let shared = LoginItemsManager()
@@ -72,6 +74,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var statusItem: NSStatusItem?
     var popover: NSPopover?
     var networkManager: NetworkManager?
+    private var statusObservationCancellables: Set<AnyCancellable> = []
     
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Check if another instance is already running
@@ -90,13 +93,20 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         
         if let button = statusItem?.button {
-            button.image = NSImage(systemSymbolName: "power", accessibilityDescription: "PC Controller")
             button.action = #selector(togglePopover)
             button.target = self
         }
         
         // Initialize NetworkManager
         networkManager = NetworkManager()
+        
+        // Set initial menu bar icon with unknown status
+        updateMenuBarIcon(for: .unknown)
+        
+        // Observe PC status changes to update menu bar icon
+        Task { @MainActor in
+            setupStatusObserver()
+        }
         
         popover = NSPopover()
         popover?.contentViewController = NSHostingController(rootView: ContentView().environmentObject(networkManager!))
@@ -193,5 +203,71 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if isCurrentlyEnabled != userDefaultsValue {
             UserDefaults.standard.set(isCurrentlyEnabled, forKey: Constants.UserDefaults.startOnLogin)
         }
+    }
+    
+    @MainActor
+    private func setupStatusObserver() {
+        guard let networkManager = networkManager else { return }
+        
+        // Observe PC status changes using Combine
+        networkManager.$pcStatus
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] status in
+                self?.updateMenuBarIcon(for: status)
+            }
+            .store(in: &statusObservationCancellables)
+    }
+}
+
+// MARK: - Status Indicator Extension
+extension AppDelegate {
+    func updateMenuBarIcon(for status: PCStatus) {
+        guard let button = statusItem?.button else { return }
+        
+        DispatchQueue.main.async {
+            button.image = self.createIconWithStatusIndicator(status: status)
+        }
+    }
+    
+    private func createIconWithStatusIndicator(status: PCStatus) -> NSImage? {
+        // Get the base power icon
+        guard let baseIcon = NSImage(systemSymbolName: "power", accessibilityDescription: "PC Controller") else {
+            return nil
+        }
+        
+        // For offline/unknown status, just return the base icon without indicator
+        guard status == .online else {
+            baseIcon.isTemplate = true
+            return baseIcon
+        }
+        
+        // Create a composite image with indicator only when PC is online
+        let iconSize = NSSize(width: 18, height: 18)
+        let image = NSImage(size: iconSize)
+        
+        image.lockFocus()
+        
+        // Draw the base power icon
+        baseIcon.draw(in: NSRect(origin: .zero, size: iconSize))
+        
+        // Draw online indicator (small filled circle in bottom-right corner)
+        let indicatorSize: CGFloat = 6
+        let indicatorRect = NSRect(
+            x: iconSize.width - indicatorSize - 1,
+            y: 1,
+            width: indicatorSize,
+            height: indicatorSize
+        )
+        
+        // Draw indicator as a solid white circle (will appear correctly in both light/dark modes)
+        NSColor.white.setFill()
+        NSBezierPath(ovalIn: indicatorRect).fill()
+        
+        image.unlockFocus()
+        
+        // Ensure the image is rendered as a template image for proper dark mode support
+        image.isTemplate = true
+        
+        return image
     }
 }
