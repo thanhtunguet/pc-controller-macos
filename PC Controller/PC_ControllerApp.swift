@@ -3,6 +3,8 @@ import SwiftUI
 import AppKit
 import ServiceManagement
 import Combine
+import UserNotifications
+import Network
 
 class LoginItemsManager: ObservableObject {
     static let shared = LoginItemsManager()
@@ -75,6 +77,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var popover: NSPopover?
     var networkManager: NetworkManager?
     private var statusObservationCancellables: Set<AnyCancellable> = []
+    private var networkMonitor: NWPathMonitor?
+    private var networkQueue = DispatchQueue(label: "NetworkMonitor")
+    private var wasNetworkConnected = false
     
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Check if another instance is already running
@@ -107,6 +112,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         Task { @MainActor in
             setupStatusObserver()
         }
+        
+        // Setup wake-from-sleep detection and network monitoring
+        setupWakeDetection()
+        setupNetworkMonitoring()
+        
+        // Request notification permissions
+        requestNotificationPermissions()
         
         popover = NSPopover()
         popover?.contentViewController = NSHostingController(rootView: ContentView().environmentObject(networkManager!))
@@ -216,6 +228,121 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.updateMenuBarIcon(for: status)
             }
             .store(in: &statusObservationCancellables)
+    }
+    
+    private func setupWakeDetection() {
+        // Monitor wake from sleep
+        NSWorkspace.shared.notificationCenter.addObserver(
+            self,
+            selector: #selector(handleWakeFromSleep),
+            name: NSWorkspace.didWakeNotification,
+            object: nil
+        )
+        
+        // Monitor screen wake (in case system doesn't fully sleep)
+        NSWorkspace.shared.notificationCenter.addObserver(
+            self,
+            selector: #selector(handleWakeFromSleep),
+            name: NSWorkspace.screensDidWakeNotification,
+            object: nil
+        )
+    }
+    
+    private func setupNetworkMonitoring() {
+        networkMonitor = NWPathMonitor()
+        
+        networkMonitor?.pathUpdateHandler = { [weak self] path in
+            DispatchQueue.main.async {
+                let isConnected = path.status == .satisfied
+                
+                // Check if network was restored after being disconnected
+                if isConnected && !(self?.wasNetworkConnected ?? true) {
+                    self?.handleNetworkRestored()
+                }
+                
+                self?.wasNetworkConnected = isConnected
+            }
+        }
+        
+        networkMonitor?.start(queue: networkQueue)
+    }
+    
+    private func requestNotificationPermissions() {
+        let center = UNUserNotificationCenter.current()
+        center.requestAuthorization(options: [.alert, .sound, .badge]) { granted, error in
+            if let error = error {
+                print("Notification permission error: \(error)")
+            }
+        }
+    }
+    
+    @objc private func handleWakeFromSleep() {
+        // Delay the status check slightly to allow network to stabilize
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+            self.checkPCStatusAndNotify(reason: "wake from sleep")
+        }
+    }
+    
+    private func handleNetworkRestored() {
+        // Delay the status check to allow network to fully establish
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
+            self.checkPCStatusAndNotify(reason: "network restored")
+        }
+    }
+    
+    private func checkPCStatusAndNotify(reason: String) {
+        guard let networkManager = networkManager else { return }
+        
+        Task {
+            await networkManager.checkPCStatus()
+            
+            // Wait a moment for the status to update
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+                if networkManager.pcStatus == .online {
+                    self?.sendPCOnlineNotification(reason: reason)
+                }
+            }
+        }
+    }
+    
+    private func sendPCOnlineNotification(reason: String) {
+        let content = UNMutableNotificationContent()
+        content.title = "PC Controller"
+        content.body = "Your PC is running after \(reason)"
+        content.sound = .default
+        
+        // Add action to open the app
+        let openAction = UNNotificationAction(
+            identifier: "OPEN_APP",
+            title: "Open App",
+            options: [.foreground]
+        )
+        let category = UNNotificationCategory(
+            identifier: "PC_STATUS",
+            actions: [openAction],
+            intentIdentifiers: [],
+            options: []
+        )
+        
+        UNUserNotificationCenter.current().setNotificationCategories([category])
+        content.categoryIdentifier = "PC_STATUS"
+        
+        let request = UNNotificationRequest(
+            identifier: "pc_online_\(Date().timeIntervalSince1970)",
+            content: content,
+            trigger: nil // Immediate delivery
+        )
+        
+        UNUserNotificationCenter.current().add(request) { error in
+            if let error = error {
+                print("Notification error: \(error)")
+            }
+        }
+    }
+    
+    deinit {
+        NSWorkspace.shared.notificationCenter.removeObserver(self)
+        networkMonitor?.cancel()
     }
 }
 
